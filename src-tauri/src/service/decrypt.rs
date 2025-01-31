@@ -14,7 +14,7 @@ use crate::{
 use base64::{engine::general_purpose::STANDARD, Engine};
 use common::types::{
     cipher::{EncryptionError, ENCRYPTION_KEY},
-    enums::ListenEvent,
+    enums::{ListenEvent, PasswordAction},
     orm_query::FullClipboardDto,
     types::{CommandError, Progress},
 };
@@ -129,6 +129,7 @@ pub async fn decrypt_all_clipboards() -> Result<(), CommandError> {
         // race condition with settings sync
         tauri::async_runtime::spawn(async {
             sleep(std::time::Duration::from_secs(5));
+
             get_sync_manager().lock().await.start().await;
         });
     }
@@ -479,12 +480,12 @@ pub fn verify_password(password: String) -> Result<bool, EncryptionError> {
     Ok(provided_key == current_key)
 }
 
-pub fn init_password_lock() {
+pub fn init_password_lock(action: PasswordAction) {
     get_app()
         .emit_to(
             EventTarget::any(),
             ListenEvent::PasswordLock.to_string().as_str(),
-            (),
+            action,
         )
-        .expect("Failed to emit download progress event");
+        .expect("Failed to emit password lock event");
 }

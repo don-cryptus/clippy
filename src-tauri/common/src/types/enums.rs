@@ -224,6 +224,15 @@ pub enum ClipboardType {
     File,
 }
 
+#[derive(Iden, EnumIter, PartialEq, Eq, Hash, Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "lowercase")]
+pub enum PasswordAction {
+    #[iden = "encrypt"]
+    Encrypt,
+    #[iden = "decrypt"]
+    Decrypt,
+}
+
 impl ClipboardType {
     pub fn from_json_value(value: &JsonValue) -> Option<Vec<Self>> {
         match value {

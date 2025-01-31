@@ -10,7 +10,7 @@ use crate::tao::connection::db;
 use crate::tao::global::get_app;
 use base64::{engine::general_purpose::STANDARD, Engine};
 use common::types::cipher::{EncryptionError, ENCRYPTION_KEY};
-use common::types::enums::ListenEvent;
+use common::types::enums::{ListenEvent, PasswordAction};
 use common::types::orm_query::FullClipboardDto;
 use common::types::types::{CommandError, Progress};
 use entity::clipboard;
@@ -192,7 +192,9 @@ pub fn encrypt_clipboard(mut clipboard: FullClipboardDto) -> FullClipboardDto {
 pub fn init_encryption() {
     let settings = get_global_settings();
     if !is_key_set() && settings.encryption {
-        init_password_lock();
+        // When initializing, if encryption is enabled but no key is set,
+        // we need to decrypt first before potentially following remote state
+        init_password_lock(PasswordAction::Decrypt);
     }
 }
 

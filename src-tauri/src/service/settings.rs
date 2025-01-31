@@ -1,11 +1,13 @@
 use super::clipboard::get_last_clipboard_db;
+use super::decrypt::{clear_encryption_key, decrypt_all_clipboards, init_password_lock};
+use super::encrypt::is_key_set;
 use super::sync::upsert_settings_sync;
 use crate::prelude::*;
 use crate::service::window::get_monitor_scale_factor;
 use crate::tao::connection::db;
 use crate::tao::global::get_app;
 use common::io::language::get_system_language;
-use common::types::enums::ListenEvent;
+use common::types::enums::{ListenEvent, PasswordAction};
 use common::types::types::CommandError;
 use entity::settings;
 use sea_orm::{ActiveModelTrait, EntityTrait};
@@ -107,12 +109,47 @@ pub fn setup_settings() {
 pub async fn update_settings_from_sync(
     settings: HashMap<String, serde_json::Value>,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    // Return early if no settings to process
     if settings.is_empty() {
         return Ok(());
     }
 
     let db: DatabaseConnection = db().await?;
     let current_settings = get_global_settings();
+
+    // Handle encryption state changes
+    let remote_encryption = settings
+        .get("encryption")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let local_encryption = current_settings.encryption;
+
+    match (local_encryption, remote_encryption, is_key_set()) {
+        // Local encrypted -> Remote encrypted, no key
+        (true, true, false) => {
+            init_password_lock(PasswordAction::Decrypt);
+            return Ok(());
+        }
+        // Local unencrypted -> Remote encrypted
+        (false, true, _) => {
+            init_password_lock(PasswordAction::Encrypt);
+            return Ok(());
+        }
+        // Local encrypted -> Remote unencrypted, no key
+        (true, false, false) => {
+            init_password_lock(PasswordAction::Decrypt);
+            return Ok(());
+        }
+        // Local encrypted -> Remote unencrypted, has key
+        (true, false, true) => {
+            // Decrypt and clear key
+            decrypt_all_clipboards()
+                .await
+                .expect("Failed to decrypt clipboards");
+            clear_encryption_key();
+        }
+        _ => {}
+    }
 
     // Convert current settings to Value to get the schema structure
     let current_value = serde_json::to_value(&current_settings)?;
@@ -130,6 +167,11 @@ pub async fn update_settings_from_sync(
 
                 // Skip startup as it users choice
                 if key == "startup" {
+                    continue;
+                }
+
+                // Skip encryption as it's handled separately above
+                if key == "encryption" {
                     continue;
                 }
 
@@ -155,8 +197,10 @@ pub async fn update_settings_from_sync(
             .exec(&db)
             .await?;
 
+        // Update global settings
         set_global_settings(settings);
 
+        // Notify UI of settings change
         init_settings_window();
 
         printlog!("(remote) downloaded settings");
